@@ -62,9 +62,9 @@ func (r *RPC) Respond(resp interface{}, err error) {
 
 // Transport interface
 type Transport interface {
-	// Consume returns a channel that can be used to
+	// Consumer returns a channel that can be used to
 	// consume and respond to RPC requests
-	Consume() <-chan RPC
+	Consumer() <-chan RPC
 
 	AppendEntries(target net.Addr, args *AppendEntriesRequest, resp *AppendEntriesResponse) error
 

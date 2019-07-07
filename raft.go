@@ -1,6 +1,10 @@
 package raft
 
-import "sync"
+import (
+	"fmt"
+	"log"
+	"sync"
+)
 
 type RaftState uint8
 
@@ -86,8 +90,24 @@ func (r *Raft) run() {
 }
 
 func (r *Raft) runFollower() {
+	ch := r.trans.Consumer()
 	for {
 		select {
+		case rpc := <-ch:
+			// Handle the command
+			switch cmd := rpc.Command.(type) {
+			case *AppendEntriesRequest:
+				r.followerAppendEntries(rpc, cmd)
+			case *RequestVoteRequest:
+				r.followerRequestVote(rpc, cmd)
+			default:
+				log.Printf("[ERR] in Follower state, got unexpected command: %#v", rpc.Command)
+				rpc.Respond(nil, fmt.Errorf("Unexpected command"))
+			}
+		case <-randomTimeout(r.conf.HeartbeatTimeout):
+			// Hearbeat failed! Go to the candidate sttate
+			r.state = Candidate
+			return
 		case <-r.shutdownCh:
 			return
 		}
