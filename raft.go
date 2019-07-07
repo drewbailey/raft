@@ -115,8 +115,22 @@ func (r *Raft) runFollower() {
 }
 
 func (r *Raft) runCandidate() {
+	ch := r.trans.Consumer()
 	for {
 		select {
+		case rpc := <-ch:
+			// Handle the command
+			switch rpc.Command.(type) {
+			default:
+				log.Printf("[ERR] Candidate state, got unexpected command: %#v",
+					rpc.Command)
+				rpc.Respond(nil, fmt.Errorf("Unexpected command"))
+
+			}
+		case <-randomTimeout(r.conf.ElectionTimeout):
+			// Election failed! Restart the elction. We simply return,
+			// which will kick us back into runCandidate
+			return
 		case <-r.shutdownCh:
 			return
 		}
