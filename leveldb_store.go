@@ -48,7 +48,7 @@ func NewLevelDBStore(base string) (*LevelDBStore, error) {
 	}
 	ldb.logs = db
 
-	db, err = leveldb.OpenFile(logLoc, opts)
+	db, err = leveldb.OpenFile(confLoc, opts)
 	if err != nil {
 		log.Printf("[ERR] Failed to open conf leveldb: %v", err)
 		return nil, err
