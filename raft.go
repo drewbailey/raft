@@ -18,11 +18,15 @@ type Raft struct {
 	// stable is a StableStore implementation
 	stable StableStore
 
+	// logs is a LogStore implemeation to keep our logs
 	logs LogStore
 
+	// Highest committed log entry
 	commitIndex uint64
 
+	// last applied log to the FSM
 	lastApplied uint64
 
-	leader *LeaderStore
+	// if leader, extra state
+	leader *LeaderState
 }
