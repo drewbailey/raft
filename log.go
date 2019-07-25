@@ -22,7 +22,7 @@ type LogStore interface {
 	LastIndex() (uint64, error)
 
 	// GetLog gets a log entry at a given index
-	GeLog(index uint64, log *Log) error
+	GetLog(index uint64, log *Log) error
 
 	// StoreLog stores a log entry
 	StoreLog(log *Log) error
