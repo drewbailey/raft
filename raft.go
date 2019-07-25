@@ -21,7 +21,7 @@ var (
 	keyLastVoteTerm = []byte("LastVoteTerm")
 	keyLastVoteCand = []byte("LastVoteCand")
 	keyCandidateId  = []byte("CandidateId")
-	NoteLeader      = fmt.Errorf("node is not the leader")
+	NotLeader       = fmt.Errorf("node is not the leader")
 )
 
 type Raft struct {
@@ -67,9 +67,6 @@ type Raft struct {
 
 	// Track our known peers
 	peers []net.Addr
-
-	// If we are the leader, we have extra state
-	leader *LeaderState
 
 	// Shutdown channel to exit
 	shutdownCh   chan struct{}
