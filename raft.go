@@ -465,7 +465,7 @@ func (r *Raft) CandidateId() string {
 
 func (r *Raft) setCurrentTerm(t uint64) error {
 	// Persist to disk first
-	if err := r.stable.SetUint64(keyCurrentTerm, t), err != nil {
+	if err := r.stable.SetUint64(keyCurrentTerm, t); err != nil {
 		fmt.Printf("[ERR] Failed to save current term: %v", err)
 		return err
 	}
