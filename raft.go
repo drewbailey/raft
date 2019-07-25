@@ -41,6 +41,13 @@ type Raft struct {
 	// Cache the latest log, though we can get from LogStore
 	lastLog uint64
 
+	// Commit chan is used to provide the newest commit index
+	// so that changes can be applied to the FSM. This is used
+	// so the main goroutine can use commitIndex without locking,
+	// and the FSM manager goroutine can read from this and manipulate
+	// lastApplied without a lock.
+	commitCh chan uint64
+
 	// Highest commited log entry
 	commitIndex uint64
 
@@ -86,6 +93,7 @@ func NewRaft(conf *Config, stable StableStore, logs LogStore, fsm FSM, trans Tra
 		currentTerm: currentTerm,
 		logs:        logs,
 		lastLog:     lastLog,
+		commitCh:    make(chan uint64, 128),
 		commitIndex: 0,
 		lastApplied: 0,
 		fsm:         fsm,
@@ -160,7 +168,7 @@ func (r *Raft) runCandidate(ch <-chan RPC) {
 	// Tally the votes, need a simple majority
 	grantedVotes := 0
 	clusterSize := len(r.peers) + 1
-	votesNeeded := (clusterSize >> 1) + 1
+	votesNeeded := (clusterSize / 2) + 1
 	log.Printf("[DEBUG] Cluster size: %d, votes needed: %d", clusterSize, votesNeeded)
 
 	transition := false
@@ -214,8 +222,19 @@ func (r *Raft) runCandidate(ch <-chan RPC) {
 // runLeader runs the FSM for a leader
 func (r *Raft) runLeader(ch <-chan RPC) {
 	log.Printf("[INFO] Entering Leader state")
-	for {
+	transition := false
+	for !transition {
 		select {
+		case rpc := <-ch:
+			switch cmd := rpc.Command.(type) {
+			case *AppendEntriesRequest:
+				transition := r.appendEntries(rpc, cmd)
+			case *RequestVoteRequest:
+				transition := r.requestVote(rpc, cmd)
+			default:
+				log > printf("[ERR] Leaderstate, got unexpected command: %#v", rpc.Command)
+				rpc.Respond(nil, fmt.Errorf("Unexpected Command"))
+			}
 		case <-r.shutdownCh:
 			return
 		}
@@ -299,7 +318,8 @@ func (r *Raft) appendEntries(rpc RPC, a *AppendEntriesRequest) (transition bool)
 	if a.LeaderCommitIndex > r.commitIndex {
 		r.commitIndex = min(a.LeaderCommitIndex, r.lastLog)
 
-		// TODO: Trigger applying logs locally!
+		// Trigger applying logs locally
+		r.commitCh <- r.commitIndex
 	}
 
 	// Everything went well, set success
