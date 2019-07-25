@@ -367,13 +367,9 @@ func (r *Raft) requestVote(rpc RPC, req *RequestVoteRequest) (transition bool) {
 		}
 	}
 
-	// Seems we should grant a vote
-	if err := r.stable.SetUint64(keyLastVoteTerm, req.Term); err != nil {
-		log.Printf("[ERR] Failed to persist last vote term: %v", err)
-		return
-	}
-	if err := r.stable.Set(keyLastVoteCand, []byte(req.CandidateId)); err != nil {
-		log.Printf("[ERR] Failed to persist last vote candidate: %v", err)
+	// Persist a vote for safety
+	if err := r.persistVote(req.Term, req.CandidateId); err != nil {
+		log.Printf("[ERR] Failed to persist vote: %v", err)
 		return
 	}
 
@@ -430,7 +426,13 @@ func (r *Raft) electSelf() <-chan *RequestVoteResponse {
 		go askPeer(peer)
 	}
 
-	// Vote for ourself by default
+	// Persist a vote for ourselves
+	if err := r.persistVote(req.Term, req.CandidateId); err != nil {
+		log.Printf("[ERR] Failed to persist vote: %v", err)
+		return nil
+	}
+
+	// Include our own vote
 	respCh <- &RequestVoteResponse{Term: req.Term, Granted: true}
 	return respCh
 }
@@ -444,5 +446,16 @@ func (r *Raft) CandidateId() string {
 func (r *Raft) setCurrentTerm(t uint64) error {
 	r.currentTerm = t
 	// TODO stable store
+	return nil
+}
+
+// persistVote is used to persist our vote for safety
+func (r *Raft) persistVote(term uint64, candidate string) error {
+	if err := r.stable.SetUint64(keyLastVoteTerm, term); err != nil {
+		return err
+	}
+	if err := r.stable.Set(keyLastVoteCand, []byte(candidate)); err != nil {
+		return err
+	}
 	return nil
 }
