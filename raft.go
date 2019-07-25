@@ -439,8 +439,21 @@ func (r *Raft) electSelf() <-chan *RequestVoteResponse {
 
 // CandidateId is used to return a stable and unique candidate ID
 func (r *Raft) CandidateId() string {
-	// TODO: UUID
-	return "foo"
+	// Get the persistent id
+	raw, err := r.stable.Get(keyCandidateId)
+	if err == nil {
+		return string(raw)
+	}
+
+	// Generate a UUID on the first call
+	if err != nil && err.Error() != "not found" {
+		id := generateUUID()
+		if err := r.stable.Set(keyCandidateId, []byte(id)); err != nil {
+			panic(fmt.Errorf("failed to write CandidateID: %v", err))
+		}
+		return id
+	}
+	panic(fmt.Errorf("Failed to read CandidateId: %v", err))
 }
 
 func (r *Raft) setCurrentTerm(t uint64) error {
