@@ -5,6 +5,7 @@ import (
 	"log"
 	"net"
 	"sync"
+	"time"
 )
 
 type RaftState uint8
@@ -20,9 +21,13 @@ var (
 	keyLastVoteTerm = []byte("LastVoteTerm")
 	keyLastVoteCand = []byte("LastVoteCand")
 	keyCandidateId  = []byte("CandidateId")
+	NoteLeader      = fmt.Errorf("node is not the leader")
 )
 
 type Raft struct {
+	// applyCh is used to manage commands to be applied
+	applyCh chan *logFuture
+
 	// Configuration
 	conf *Config
 
@@ -87,6 +92,7 @@ func NewRaft(conf *Config, stable StableStore, logs LogStore, fsm FSM, trans Tra
 
 	// Create Raft struct
 	r := &Raft{
+		applyCh:     make(chan *logFuture),
 		conf:        conf,
 		state:       Follower,
 		stable:      stable,
@@ -105,6 +111,32 @@ func NewRaft(conf *Config, stable StableStore, logs LogStore, fsm FSM, trans Tra
 	// Start the background work
 	go r.run()
 	return r, nil
+}
+
+// Apply is used to apply a command to the FSM in a highly consistent
+// manner. This returns a future that can be used to wait on the application.
+// An optional timeout can be provided to limit the amount of time we wait
+// for the command to be started.
+func (r *Raft) Apply(cmd []byte, timeout time.Duration) ApplyFuture {
+	var timer <-chan time.Time
+	if timeout > 0 {
+		timer = time.After(timeout)
+	}
+
+	logFuture := &logFuture{
+		log: Log{
+			Type: LogCommand,
+			Data: cmd,
+		},
+		errCh: make(chan error, 1),
+	}
+
+	select {
+	case <-timer:
+		return errorFuture{fmt.Errorf("timed out enqueueing operation")}
+	case r.applyCh <- logFuture:
+		return logFuture
+	}
 }
 
 // Shutdown is used to stop the Raft background routines.
@@ -157,7 +189,9 @@ func (r *Raft) runFollower(ch <-chan RPC) {
 					rpc.Command)
 				rpc.Respond(nil, fmt.Errorf("Unexpected command"))
 			}
-
+		case a := <-r.applyCh:
+			// Reject any operations since we are not the leader
+			a.respond(NotLeader)
 		case <-randomTimeout(r.conf.HeartbeatTimeout):
 			// Heartbeat failed! Go to the candidate state
 			r.state = Candidate
@@ -220,6 +254,9 @@ func (r *Raft) runCandidate(ch <-chan RPC) {
 				r.state = Leader
 				return
 			}
+		case a := <-r.applyCh:
+			// Reject any operations since we are not the leader
+			a.respond(NotLeader)
 		case <-electionTimer:
 			// Election failed! Restart the elction. We simply return,
 			// which will kick us back into runCandidate
@@ -237,6 +274,7 @@ func (r *Raft) runLeader(ch <-chan RPC) {
 	transition := false
 	for !transition {
 		select {
+		case <-r.applyCh:
 		case rpc := <-ch:
 			switch cmd := rpc.Command.(type) {
 			case *AppendEntriesRequest:
