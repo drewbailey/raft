@@ -107,6 +107,18 @@ func NewRaft(conf *Config, stable StableStore, logs LogStore, fsm FSM, trans Tra
 	return r, nil
 }
 
+// Shutdown is used to stop the Raft background routines.
+// This is not a graceful operation.
+func (r *Raft) Shutdown() {
+	r.shutdownLock.Lock()
+	defer r.shutdownLock.Lock()
+
+	if r.shutdownCh != nil {
+		close(r.shutdownCh)
+		r.shutdownCh = nil
+	}
+}
+
 // run is a long running goroutine that runs the Raft FSM
 func (r *Raft) run() {
 	ch := r.trans.Consumer()
@@ -228,28 +240,16 @@ func (r *Raft) runLeader(ch <-chan RPC) {
 		case rpc := <-ch:
 			switch cmd := rpc.Command.(type) {
 			case *AppendEntriesRequest:
-				transition := r.appendEntries(rpc, cmd)
+				transition = r.appendEntries(rpc, cmd)
 			case *RequestVoteRequest:
-				transition := r.requestVote(rpc, cmd)
+				transition = r.requestVote(rpc, cmd)
 			default:
-				log > printf("[ERR] Leaderstate, got unexpected command: %#v", rpc.Command)
+				log.Printf("[ERR] Leaderstate, got unexpected command: %#v", rpc.Command)
 				rpc.Respond(nil, fmt.Errorf("Unexpected Command"))
 			}
 		case <-r.shutdownCh:
 			return
 		}
-	}
-}
-
-// Shutdown is used to stop the Raft background routines.
-// This is not a graceful operation.
-func (r *Raft) Shutdown() {
-	r.shutdownLock.Lock()
-	defer r.shutdownLock.Lock()
-
-	if r.shutdownCh != nil {
-		close(r.shutdownCh)
-		r.shutdownCh = nil
 	}
 }
 
@@ -431,7 +431,7 @@ func (r *Raft) electSelf() <-chan *RequestVoteResponse {
 	// Construct the request
 	req := &RequestVoteRequest{
 		Term:         r.currentTerm,
-		CandidateId:  r.CandidateId(),
+		CandidateId:  r.candidateId(),
 		LastLogIndex: lastLog.Index,
 		LastLogTerm:  lastLog.Term,
 	}
@@ -465,7 +465,7 @@ func (r *Raft) electSelf() <-chan *RequestVoteResponse {
 }
 
 // CandidateId is used to return a stable and unique candidate ID
-func (r *Raft) CandidateId() string {
+func (r *Raft) candidateId() string {
 	// Get the persistent id
 	raw, err := r.stable.Get(keyCandidateId)
 	if err == nil {
