@@ -56,3 +56,33 @@ func TestInflight_Cancel(t *testing.T) {
 		t.Fatalf("expected error")
 	}
 }
+
+func TestInflight_Apply(t *testing.T) {
+	commitCh := make(chan *logFuture, 1)
+	in := NewInflight(commitCh)
+
+	// Commit a transaction as being in flight
+	l := &logFuture{
+		log:   Log{Index: 1},
+		errCh: make(chan error, 1),
+	}
+	in.Start(l, 3)
+
+	in.Commit(1)
+	in.Commit(1)
+	in.Commit(1)
+
+	commit := <-commitCh
+
+	// Apply
+	in.Apply(commit.log.Index)
+
+	// Should get nil error
+	if err := l.Error(); err != nil {
+		t.Fatalf("should get nil err: %v", err)
+	}
+
+	if _, ok := in.operations[l.log.Index]; ok {
+		t.Fatalf("operation should have been removed but was not")
+	}
+}
